@@ -122,6 +122,13 @@
     /* Two column */
     .results-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
     @media (max-width: 900px) { .results-cols { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) {
+      header { padding: 1rem 1.25rem; }
+      main { padding: 1.5rem 1rem; }
+      .completeness-row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+      .record-grid { grid-template-columns: 1fr; }
+      .download-row { flex-direction: column; }
+    }
     .col-left, .col-right { display: flex; flex-direction: column; gap: 1rem; }
 
     /* Document cards */
