@@ -214,6 +214,13 @@
     </div>
   </div>
 
+  <div style="margin-top:1rem;text-align:center;">
+    <div style="font-size:0.7rem;color:var(--text-dim);margin-bottom:0.6rem;font-family:var(--font-mono);letter-spacing:0.1em;">NO FILES? TRY A SAMPLE</div>
+    <button onclick="loadDemo()" style="background:rgba(87,230,177,0.08);border:1px solid rgba(87,230,177,0.2);color:var(--accent-strong);font-family:var(--font-display);font-weight:600;font-size:0.82rem;padding:0.55rem 1.1rem;border-radius:10px;cursor:pointer;transition:all 0.2s;">
+      ↓ Load Sample Onboarding Packet
+    </button>
+  </div>
+
   <div id="file-queue-section" style="display:none">
     <div class="file-queue" id="file-queue"></div>
     <button class="btn btn-primary" id="process-btn" onclick="startProcessing()" disabled>
@@ -335,6 +342,21 @@
         <button class="file-chip-remove" onclick="removeFile(${idx})">×</button>`;
       queue.appendChild(chip);
     });
+  }
+
+  async function loadDemo() {
+    try {
+      document.getElementById('processing-panel').classList.add('active');
+      document.getElementById('results-section').style.display = 'none';
+      const res = await fetch(`${API}/api/demo`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      resultData = data;
+      setTimeout(() => renderResults(data), 300);
+    } catch(e) {
+      document.getElementById('processing-panel').classList.remove('active');
+      alert('Could not load demo. Please try again.');
+    }
   }
 
   async function startProcessing() {
