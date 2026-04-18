@@ -6,6 +6,7 @@ import pandas as pd
 
 from app.core.config import settings
 from app.core.pdf_parser import parse_pdf
+from app.core.spreadsheet_parser import parse_spreadsheet
 from app.agents.onboarding_agent import (
     classify_document, extract_document, build_employee_record,
     generate_summary, group_documents_by_employee, CATEGORY_LABELS,
@@ -19,14 +20,19 @@ router = APIRouter(prefix="/api", tags=["onboarding"])
 
 
 async def _process_document(file: UploadFile) -> ProcessedDocument:
-    """Parse, classify, and extract a single PDF file."""
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail=f"{file.filename} is not a PDF.")
+    """Parse, classify, and extract a single PDF, Excel, or CSV file."""
+    fname = file.filename.lower()
+    allowed = (".pdf", ".xlsx", ".xls", ".csv")
+    if not any(fname.endswith(ext) for ext in allowed):
+        raise HTTPException(status_code=400, detail=f"{file.filename} is not a supported file type (PDF, Excel, CSV).")
     content = await file.read()
     size_mb = len(content) / (1024 * 1024)
     if size_mb > settings.max_file_size_mb:
         raise HTTPException(status_code=413, detail=f"{file.filename} is too large ({size_mb:.1f} MB).")
-    parsed   = parse_pdf(content, file.filename)
+    if fname.endswith(".pdf"):
+        parsed = parse_pdf(content, file.filename)
+    else:
+        parsed = parse_spreadsheet(content, file.filename)
     text     = parsed["full_text"]
     category = classify_document(text)
     fields, issues, completeness = extract_document(text, category)
