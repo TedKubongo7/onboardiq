@@ -346,16 +346,24 @@
 
   async function loadDemo() {
     try {
-      document.getElementById('processing-panel').classList.add('active');
-      document.getElementById('results-section').style.display = 'none';
-      const res = await fetch(`${API}/api/demo`);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      resultData = data;
-      setTimeout(() => renderResults(data), 300);
+      const names = [
+        'Fatima Direct Deposit.pdf',
+        'Fatima Emergency Contact.pdf',
+        'Fatima ID Verification.pdf',
+        'Fatima Offer Letter.pdf',
+        'Fatima Onboarding Checklist.pdf',
+        'Fatima TD1 Tax.pdf',
+      ];
+      const files = await Promise.all(names.map(async name => {
+        const res = await fetch(`${API}/api/demo/file?name=${encodeURIComponent(name)}`);
+        if (!res.ok) throw new Error();
+        const blob = await res.blob();
+        return new File([blob], name, { type: 'application/pdf' });
+      }));
+      selectedFiles = files;
+      renderQueue();
     } catch(e) {
-      document.getElementById('processing-panel').classList.remove('active');
-      alert('Could not load demo. Please try again.');
+      alert('Could not load demo files. Please try again.');
     }
   }
 

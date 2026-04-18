@@ -2,7 +2,7 @@ import io
 from pathlib import Path
 from typing import List
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 import pandas as pd
 
 from app.core.config import settings
@@ -161,48 +161,22 @@ async def export_records(data: dict):
     )
 
 
-@router.get("/demo", response_model=BatchOnboardingResult)
-async def demo_onboarding():
-    """Run onboarding pipeline on built-in Fatima sample documents."""
-    sample_dir = Path(__file__).parent.parent.parent / "sample_data"
-    filenames = [
-        "Fatima Direct Deposit.pdf",
-        "Fatima Emergency Contact.pdf",
-        "Fatima ID Verification.pdf",
-        "Fatima Offer Letter.pdf",
-        "Fatima Onboarding Checklist.pdf",
-        "Fatima TD1 Tax.pdf",
-    ]
+_DEMO_FILES = {
+    "Fatima Direct Deposit.pdf",
+    "Fatima Emergency Contact.pdf",
+    "Fatima ID Verification.pdf",
+    "Fatima Offer Letter.pdf",
+    "Fatima Onboarding Checklist.pdf",
+    "Fatima TD1 Tax.pdf",
+}
 
-    all_documents: list[ProcessedDocument] = []
-    for fname in filenames:
-        content = (sample_dir / fname).read_bytes()
-        parsed = parse_pdf(content, fname)
-        text = parsed["full_text"]
-        category = classify_document(text)
-        fields, issues, completeness = extract_document(text, category)
-        all_documents.append(ProcessedDocument(
-            filename=fname,
-            category=category,
-            category_label=CATEGORY_LABELS.get(category, "Unknown Document"),
-            fields=fields,
-            completeness_pct=completeness,
-            issues=issues,
-            raw_text=text[:1500],
-        ))
-
-    groups = group_documents_by_employee(all_documents)
-    results: list[OnboardingResult] = []
-    for employee_name, docs in groups.items():
-        results.append(_build_result(docs))
-
-    ready_count = sum(1 for r in results if r.ready_for_hris)
-    return BatchOnboardingResult(
-        employees=results,
-        total_employees=len(results),
-        ready_count=ready_count,
-        not_ready_count=len(results) - ready_count,
-    )
+@router.get("/demo/file")
+async def demo_file(name: str):
+    """Serve a single sample onboarding file for the demo preview."""
+    if name not in _DEMO_FILES:
+        raise HTTPException(status_code=404, detail="File not found.")
+    path = Path(__file__).parent.parent.parent / "sample_data" / name
+    return FileResponse(path, media_type="application/pdf", filename=name)
 
 
 @router.get("/health")
