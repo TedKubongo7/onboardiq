@@ -7,6 +7,7 @@ Onboarding Agent — uses Claude to:
 """
 
 import re
+import base64
 import json
 import anthropic
 from app.core.config import settings
@@ -139,6 +140,43 @@ Ready for HRIS: {ready}
 Be direct and professional. State whether the packet is ready to process, what's missing, and what action is needed."""
 
 
+IMAGE_EXTRACT_PROMPT = """You are an expert HR document processor. Analyze this document image.
+
+First, classify it into one of these categories:
+- offer_letter
+- tax_form
+- direct_deposit
+- identity_document
+- emergency_contact
+- policy_acknowledgement
+- unknown
+
+Then extract all relevant fields for that document type from the lists below.
+
+OFFER LETTER fields: employee_name, job_title, department, start_date, salary, employment_type, manager_name, work_location, offer_signed, signature_date
+TAX FORM fields: employee_name, tax_id, date_of_birth, address, filing_status, allowances, tax_form_type, signature_date
+DIRECT DEPOSIT fields: employee_name, bank_name, account_type, transit_routing, account_number, signature_date
+IDENTITY DOCUMENT fields: full_name, date_of_birth, id_type, id_number, expiry_date, issuing_country
+EMERGENCY CONTACT fields: employee_name, email, phone, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email
+POLICY ACKNOWLEDGEMENT fields: employee_name, policies_acknowledged, signature_date
+
+INSTRUCTIONS:
+- Extract every field you can read, including handwritten values
+- status = "complete" if clearly present, "missing" if not found, "flagged" if suspicious or illegible
+- Note any handwriting that is difficult to read in issues
+- completeness_pct = percentage of expected fields that are filled
+
+Return ONLY valid JSON:
+{
+  "category": "<category>",
+  "fields": [
+    {"key": "field_key", "label": "Field Label", "value": "value or null", "status": "complete|missing|flagged", "flag_reason": "reason or null"}
+  ],
+  "issues": ["any problems, illegible writing, missing signatures, etc."],
+  "completeness_pct": <0-100>
+}"""
+
+
 # ── Document classification ────────────────────────────────────────────────────
 
 def classify_document(text: str) -> DocumentCategory:
@@ -207,6 +245,77 @@ def extract_document(text: str, category: DocumentCategory) -> tuple[list[Docume
     issues       = data.get("issues", [])
     completeness = float(data.get("completeness_pct", 0))
     return doc_fields, issues, completeness
+
+
+# ── Vision extraction (JPG/JPEG) ──────────────────────────────────────────────
+
+def classify_and_extract_image(
+    image_bytes: bytes,
+    media_type: str = "image/jpeg",
+) -> tuple[DocumentCategory, list[DocumentField], list[str], float]:
+    """
+    Send an image directly to Claude vision for classification and extraction.
+    Returns (category, fields, issues, completeness_pct).
+    """
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    response = client.messages.create(
+        model=settings.model,
+        max_tokens=1500,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+                },
+                {"type": "text", "text": IMAGE_EXTRACT_PROMPT},
+            ],
+        }],
+    )
+
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return DocumentCategory.UNKNOWN, [], ["Could not parse image document"], 0.0
+
+    try:
+        category = DocumentCategory(data.get("category", "unknown"))
+    except ValueError:
+        category = DocumentCategory.UNKNOWN
+
+    field_defs = DOCUMENT_FIELDS.get(category, DEFAULT_FIELDS)
+    label_map  = {k: l for k, l in field_defs}
+
+    doc_fields = []
+    for item in data.get("fields", []):
+        raw_val = item.get("value")
+        if isinstance(raw_val, list):
+            str_val = ", ".join(str(v) for v in raw_val)
+        elif raw_val is not None:
+            str_val = str(raw_val).strip()
+        else:
+            str_val = None
+
+        doc_fields.append(DocumentField(
+            key=item.get("key", ""),
+            label=label_map.get(item.get("key", ""), item.get("label", "")),
+            value=str_val,
+            status=FieldStatus(item.get("status", "missing")),
+            flag_reason=item.get("flag_reason"),
+        ))
+
+    issues       = data.get("issues", [])
+    completeness = float(data.get("completeness_pct", 0))
+    return category, doc_fields, issues, completeness
 
 
 # ── Address parsing helpers ────────────────────────────────────────────────────
